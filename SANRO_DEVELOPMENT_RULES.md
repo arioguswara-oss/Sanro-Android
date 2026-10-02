@@ -88,7 +88,15 @@ Untuk perpindahan chat atau handoff besar, pertahankan artefak yang diperlukan s
 
 Jika ada konflik antara file lama, chat lama, dan baseline LOCKED terbaru, prioritaskan baseline LOCKED terbaru yang telah disetujui.
 
-## 9. Aturan sebelum perubahan
+## 9. Rule View Android — LOCKED
+
+- Berlaku untuk **SanroPOS** dan **SanroStock**.
+- Perangkat **phone** (`smallestScreenWidthDp < 600`) wajib **portrait only**.
+- Perangkat **tablet** (`smallestScreenWidthDp >= 600`) mengikuti preferensi orientasi pengguna/Android: dapat portrait atau landscape dan tetap mendukung auto-rotate.
+- Klasifikasi tidak menggunakan ukuran inci fisik layar.
+- Rule ini berstatus **LOCKED** dan tidak boleh diubah tanpa instruksi eksplisit.
+
+## 10. Aturan sebelum perubahan
 
 Sebelum mengubah source:
 1. identifikasi baseline/checkpoint terbaru;
