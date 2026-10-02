@@ -7,6 +7,7 @@ import android.print.PrintManager;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -41,6 +42,7 @@ public class MainActivity extends Activity {
     private static final String ALLOWED_HOST = "pos.sanrotech.com";
     private static final int FILE_CHOOSER_REQUEST = 2001;
     private static final int CAMERA_PERMISSION_REQUEST = 2002;
+    private static final int TABLET_MIN_SMALLEST_WIDTH_DP = 600;
 
     private WebView webView;
     private ProgressBar progressBar;
@@ -49,6 +51,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        applyDeviceOrientationPolicy();
         FrameLayout root = new FrameLayout(this);
         webView = new WebView(this);
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -61,6 +64,14 @@ public class MainActivity extends Activity {
         applySystemBarSafeArea(root);
         configureWebView();
         if (savedInstanceState == null) webView.loadUrl(START_URL); else webView.restoreState(savedInstanceState);
+    }
+
+    private void applyDeviceOrientationPolicy() {
+        int smallestWidthDp = getResources().getConfiguration().smallestScreenWidthDp;
+        boolean isTablet = smallestWidthDp >= TABLET_MIN_SMALLEST_WIDTH_DP;
+        setRequestedOrientation(isTablet
+                ? ActivityInfo.SCREEN_ORIENTATION_USER
+                : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
     }
 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
