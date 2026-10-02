@@ -15,6 +15,12 @@ Status: WORK / device smoke test PASS — release APK belum dibuat.
 - SanroPOS -> https://pos.sanrotech.com/sanro-pos
 - SanroStock -> https://pos.sanrotech.com/sanro-stock
 
+## View orientation rule
+- **LOCKED rule**: phone (`smallestScreenWidthDp < 600`) selalu portrait.
+- Tablet (`smallestScreenWidthDp >= 600`) menggunakan orientasi USER Android sehingga auto-rotate tetap bekerja saat diaktifkan dan orientation lock perangkat tetap dihormati.
+- Implementasi diterapkan sama pada SanroPOS dan SanroStock.
+- Status implementasi source: WORK; perlu build APK + real-device QA sebelum baseline aplikasi dinyatakan LOCKED.
+
 ## QA status
 - SanroPOS V1.0.5: real-device smoke test PASS pada Xiaomi user.
 - SanroStock V1.0.5: real-device smoke test PASS pada Xiaomi user.
