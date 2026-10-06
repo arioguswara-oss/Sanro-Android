@@ -131,7 +131,7 @@ public class MainActivity extends Activity {
                 BLUETOOTH_CONNECT_PERMISSION_REQUEST,
                 this::emitNativePrinterEvent);
         webView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
-        webView.addJavascriptInterface(bluetoothPrinterBridge, "SanroNative");
+        webView.addJavascriptInterface(bluetoothPrinterBridge, "SanroNativeBridge");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return handleNavigation(request.getUrl()); }
@@ -190,7 +190,26 @@ public class MainActivity extends Activity {
     }
     private void openExternal(Uri uri) { try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch(Exception e) { Toast.makeText(this,"Tidak ada aplikasi untuk membuka tautan ini.",Toast.LENGTH_SHORT).show(); } }
     private void injectNativePrintBridge() {
-        String js = "(function(){if(window.__sanroNativePrintInstalled)return;window.__sanroNativePrintInstalled=true;window.__sanroNativePrinterBridgeVersion='1.0.6';window.__sanroOriginalPrint=window.print;window.print=function(){try{AndroidBridge.printPage();}catch(e){if(window.__sanroOriginalPrint)window.__sanroOriginalPrint();}};})();";
+        String token = bluetoothPrinterBridge == null ? "" : bluetoothPrinterBridge.getBridgeToken();
+        String js = "(function(){"
+                + "if(window.__sanroNativePrintInstalled)return;"
+                + "window.__sanroNativePrintInstalled=true;"
+                + "window.__sanroNativePrinterBridgeVersion='1.0.6';"
+                + "var B=window.SanroNativeBridge;var T='" + token + "';"
+                + "if(B){var api=Object.freeze({"
+                + "getCapabilities:function(){return B.getCapabilities(T);},"
+                + "listPairedPrinters:function(){return B.listPairedPrinters(T);},"
+                + "getSelectedPrinter:function(){return B.getSelectedPrinter(T);},"
+                + "selectPrinter:function(address){return B.selectPrinter(T,address);},"
+                + "clearSelectedPrinter:function(){return B.clearSelectedPrinter(T);},"
+                + "requestBluetoothPermission:function(){return B.requestBluetoothPermission(T);},"
+                + "testPrint:function(){return B.testPrint(T);},"
+                + "printText:function(text){return B.printText(T,text);},"
+                + "printEscPosBase64:function(payload){return B.printEscPosBase64(T,payload);}"
+                + "});try{Object.defineProperty(window,'SanroNative',{value:api,writable:false,configurable:false});}catch(e){}}"
+                + "window.__sanroOriginalPrint=window.print;"
+                + "window.print=function(){try{AndroidBridge.printPage();}catch(e){if(window.__sanroOriginalPrint)window.__sanroOriginalPrint();}};"
+                + "})();";
         webView.evaluateJavascript(js, null);
     }
     private void emitNativePrinterEvent(String json) {
@@ -230,7 +249,7 @@ public class MainActivity extends Activity {
             bluetoothPrinterBridge = null;
         }
         if (webView != null) {
-            webView.removeJavascriptInterface("SanroNative");
+            webView.removeJavascriptInterface("SanroNativeBridge");
             webView.removeJavascriptInterface("AndroidBridge");
             webView.stopLoading();
             webView.destroy();
