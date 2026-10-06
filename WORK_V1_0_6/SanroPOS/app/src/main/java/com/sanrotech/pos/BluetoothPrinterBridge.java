@@ -168,13 +168,12 @@ public final class BluetoothPrinterBridge {
 
     @JavascriptInterface
     public void testPrint() {
-        byte[] payload = buildTestPrintPayload();
-        enqueuePrint("testPrint", payload);
+        enqueuePrint("testPrint", buildTestPrintPayload());
     }
 
     @JavascriptInterface
     public void printText(String text) {
-        if (text == null || text.length() == 0 || text.length() > MAX_TEXT_CHARS) {
+        if (text == null || text.isEmpty() || text.length() > MAX_TEXT_CHARS) {
             emit(errorResult("printText", "INVALID_PRINT_TEXT"));
             return;
         }
@@ -273,7 +272,7 @@ public final class BluetoothPrinterBridge {
 
     private List<BluetoothDevice> bondedDevices() {
         Set<BluetoothDevice> devices = bluetoothAdapter.getBondedDevices();
-        List<BluetoothDevice> result = new ArrayList<>(devices == null ? Set.of() : devices);
+        List<BluetoothDevice> result = devices == null ? new ArrayList<>() : new ArrayList<>(devices);
         result.sort(Comparator.comparing(this::safeDeviceName, String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(BluetoothDevice::getAddress));
         return result;
@@ -307,7 +306,11 @@ public final class BluetoothPrinterBridge {
     private String readinessError(boolean requireEnabled) {
         if (bluetoothAdapter == null) return "BLUETOOTH_NOT_SUPPORTED";
         if (!hasConnectPermission()) return "BLUETOOTH_PERMISSION_REQUIRED";
-        if (requireEnabled && !bluetoothAdapter.isEnabled()) return "BLUETOOTH_DISABLED";
+        try {
+            if (requireEnabled && !bluetoothAdapter.isEnabled()) return "BLUETOOTH_DISABLED";
+        } catch (SecurityException e) {
+            return "BLUETOOTH_PERMISSION_REQUIRED";
+        }
         return null;
     }
 
