@@ -1,10 +1,12 @@
 # SANRO Android V1.0.6 — SanroNative Bluetooth Printer Bridge
 
-WebView exposes the native object as:
+WebView exposes the supported native API as:
 
 ```js
 window.SanroNative
 ```
+
+`window.SanroNative` is injected only into the top-level SANRO POS document after page load. The underlying raw JavaScript interface uses a per-Activity random token and must not be called directly. This prevents an embedded cross-origin frame from invoking Bluetooth printer operations without the wrapper token.
 
 The legacy `window.AndroidBridge.printPage()` remains unchanged for Android PrintManager fallback.
 
@@ -72,6 +74,7 @@ Successful example:
 
 Known error codes are intentionally sanitized:
 
+- `BRIDGE_UNAUTHORIZED`
 - `BLUETOOTH_NOT_SUPPORTED`
 - `BLUETOOTH_PERMISSION_REQUIRED`
 - `BLUETOOTH_PERMISSION_DENIED`
