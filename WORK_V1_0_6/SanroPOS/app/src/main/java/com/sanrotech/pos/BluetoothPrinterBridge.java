@@ -21,6 +21,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -48,6 +49,7 @@ public final class BluetoothPrinterBridge {
     private final ExecutorService printerExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean permissionRequestInFlight = new AtomicBoolean(false);
     private final BluetoothAdapter bluetoothAdapter;
+    private final String bridgeToken = UUID.randomUUID().toString();
 
     public BluetoothPrinterBridge(Activity activity, int permissionRequestCode, EventSink eventSink) {
         this.activity = activity;
@@ -58,8 +60,13 @@ public final class BluetoothPrinterBridge {
         this.bluetoothAdapter = manager == null ? null : manager.getAdapter();
     }
 
+    String getBridgeToken() {
+        return bridgeToken;
+    }
+
     @JavascriptInterface
-    public String getCapabilities() {
+    public String getCapabilities(String token) {
+        if (!authorized(token)) return unauthorized("getCapabilities").toString();
         JSONObject result = baseResult(true);
         try {
             result.put("bridgeVersion", "1.0.6");
@@ -76,7 +83,8 @@ public final class BluetoothPrinterBridge {
     }
 
     @JavascriptInterface
-    public String listPairedPrinters() {
+    public String listPairedPrinters(String token) {
+        if (!authorized(token)) return unauthorized("listPairedPrinters").toString();
         String readinessError = readinessError(true);
         if (readinessError != null) return errorResult("listPairedPrinters", readinessError).toString();
 
@@ -97,7 +105,8 @@ public final class BluetoothPrinterBridge {
     }
 
     @JavascriptInterface
-    public String getSelectedPrinter() {
+    public String getSelectedPrinter(String token) {
+        if (!authorized(token)) return unauthorized("getSelectedPrinter").toString();
         String readinessError = readinessError(true);
         if (readinessError != null) return errorResult("getSelectedPrinter", readinessError).toString();
         String address = preferences.getString(PREF_SELECTED_ADDRESS, null);
@@ -115,7 +124,8 @@ public final class BluetoothPrinterBridge {
     }
 
     @JavascriptInterface
-    public String selectPrinter(String address) {
+    public String selectPrinter(String token, String address) {
+        if (!authorized(token)) return unauthorized("selectPrinter").toString();
         String readinessError = readinessError(true);
         if (readinessError != null) return errorResult("selectPrinter", readinessError).toString();
         String normalized = normalizeAddress(address);
@@ -135,7 +145,8 @@ public final class BluetoothPrinterBridge {
     }
 
     @JavascriptInterface
-    public String clearSelectedPrinter() {
+    public String clearSelectedPrinter(String token) {
+        if (!authorized(token)) return unauthorized("clearSelectedPrinter").toString();
         preferences.edit().remove(PREF_SELECTED_ADDRESS).apply();
         JSONObject result = baseResult(true);
         try { result.put("action", "clearSelectedPrinter"); } catch (JSONException ignored) {}
@@ -144,7 +155,8 @@ public final class BluetoothPrinterBridge {
     }
 
     @JavascriptInterface
-    public String requestBluetoothPermission() {
+    public String requestBluetoothPermission(String token) {
+        if (!authorized(token)) return unauthorized("requestBluetoothPermission").toString();
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || hasConnectPermission()) {
             JSONObject result = baseResult(true);
             try {
@@ -167,12 +179,14 @@ public final class BluetoothPrinterBridge {
     }
 
     @JavascriptInterface
-    public void testPrint() {
+    public void testPrint(String token) {
+        if (!authorized(token)) return;
         enqueuePrint("testPrint", buildTestPrintPayload());
     }
 
     @JavascriptInterface
-    public void printText(String text) {
+    public void printText(String token, String text) {
+        if (!authorized(token)) return;
         if (text == null || text.isEmpty() || text.length() > MAX_TEXT_CHARS) {
             emit(errorResult("printText", "INVALID_PRINT_TEXT"));
             return;
@@ -181,7 +195,8 @@ public final class BluetoothPrinterBridge {
     }
 
     @JavascriptInterface
-    public void printEscPosBase64(String base64Payload) {
+    public void printEscPosBase64(String token, String base64Payload) {
+        if (!authorized(token)) return;
         if (base64Payload == null || base64Payload.isEmpty()) {
             emit(errorResult("printEscPosBase64", "INVALID_PRINT_PAYLOAD"));
             return;
@@ -213,10 +228,21 @@ public final class BluetoothPrinterBridge {
         printerExecutor.shutdownNow();
     }
 
+    private boolean authorized(String token) {
+        if (token == null) return false;
+        byte[] expected = bridgeToken.getBytes(StandardCharsets.US_ASCII);
+        byte[] supplied = token.getBytes(StandardCharsets.US_ASCII);
+        return MessageDigest.isEqual(expected, supplied);
+    }
+
+    private JSONObject unauthorized(String action) {
+        return errorResult(action, "BRIDGE_UNAUTHORIZED");
+    }
+
     private void enqueuePrint(String action, byte[] payload) {
         String readinessError = readinessError(true);
         if (readinessError != null) {
-            if ("BLUETOOTH_PERMISSION_REQUIRED".equals(readinessError)) requestBluetoothPermission();
+            if ("BLUETOOTH_PERMISSION_REQUIRED".equals(readinessError)) requestBluetoothPermission(bridgeToken);
             emit(errorResult(action, readinessError));
             return;
         }
