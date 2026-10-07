@@ -3,6 +3,7 @@
 Date: 2026-10-07
 Status: **PLANNED / AUDIT**
 Progress: **10% PLANNED**
+Revision: **v0.2 mode-aware**
 Scope: documentation/audit only; no Android source, Hosting frontend/backend, or database mutation.
 
 ## Source-of-truth rule
@@ -11,15 +12,43 @@ Physical MariaDB mapping remains provisional until captured READ-ONLY from the l
 
 Do not use GAS / Google Sheet mirror design as the Android database model.
 
-## Architecture direction
+Canonical Hybrid authority rules in `SANRO_DEVELOPMENT_RULES.md` are mandatory for this model.
 
-SANRO POS Web/PWA -> Native Bridge -> Domain/Repository -> Room -> SQLite local Android -> Sync Engine -> SANRO Cloud API -> MariaDB Hosting.
+## Architecture is mode-aware
 
-Room/SQLite is the Android operational store. IndexedDB is only browser/PWA fallback/cache, not the Android primary database.
+The Android shell always provides the native foundation (Native Bridge, Room/SQLite capability, device identity, local service/sync hooks), but transaction authority differs by plan/runtime mode.
 
-Local-first does not mean local-only. Offline operations commit locally and sync when online.
+### Free / Starter
 
-## Canonical semantic entities — draft v0.1
+- single device;
+- operational transaction database is local Room/SQLite;
+- initial login/activation requires internet;
+- operational transactions continue offline;
+- there is no operational cloud transaction database for Free/Starter;
+- cloud/account services may still be used for authentication, entitlement, backup/recovery, and other explicitly supported non-operational services.
+
+### Professional+ — Multi Device Hybrid ON
+
+- one Perangkat Utama maximum per branch;
+- Perangkat Utama Room/SQLite is authoritative local operational database for POS operations routed locally;
+- Perangkat Kasir talks to Perangkat Utama through Local API/LAN/Wi-Fi;
+- Perangkat Kasir does not direct-sync Penjualan transactions to cloud;
+- Perangkat Utama is the only operational transaction sync gateway to SANRO Cloud for locally authoritative POS operations;
+- Back Office such as Pembelian may remain direct-cloud according to canonical rules;
+- cloud-origin changes affecting cashier operation must synchronize back to Perangkat Utama before becoming locally authoritative.
+
+### Tunas Baru / Direct Cloud mode
+
+- current LIVE Production remains direct-cloud until explicit controlled rollout;
+- Multi Device Hybrid remains disabled;
+- existing cloud runtime/database remains authoritative;
+- introducing Room capability into APK must not silently reroute production writes.
+
+Therefore there is no single unconditional `Room -> Cloud` write path for every mode. Transaction ownership must be selected by entitlement/runtime mode and document route.
+
+## Canonical semantic entities — draft v0.2
+
+The semantic model remains stable even when physical authority differs by mode:
 
 - `items` <- Master Barang
 - `contacts` <- Kontak
@@ -42,9 +71,12 @@ Local-first does not mean local-only. Offline operations commit locally and sync
 - `point_balance_snapshot` (derived/cache only where useful)
 - `settings` (offline-safe subset only)
 - `access_policy_snapshot`
-- `sync_queue`
+- `document_sequence` (only for document types whose current allocator authority is local)
+- `sync_queue` (only for operations that actually sync)
 - `sync_log`
 - `device_state`
+
+A semantic entity being present does not mean Room owns writes in every mode. For direct-cloud routes, Room may contain synchronized/cache/read models only, or may not persist that entity locally until required.
 
 ## Identity and sync metadata
 
@@ -58,15 +90,15 @@ Every syncable entity should use a stable technical identity independent of visi
 - `created_at`
 - `updated_at`
 - `revision`
-- `sync_status`
-- `last_synced_at`
-- `deleted_at` / tombstone
+- `sync_status` where synchronization exists
+- `last_synced_at` where synchronization exists
+- `deleted_at` / tombstone where applicable
 
 Do not use `source_row_idx` or `device_id` as global business identity.
 
-Visible `transaction_no` / `po_no` remains separate from UUID.
+Visible `transaction_no`, `so_no`, `po_no`, or nota numbers remain separate from UUID.
 
-## Sales rules that Room must preserve
+## Sales rules that local POS mode must preserve
 
 The protected Penjualan baseline includes:
 
@@ -80,17 +112,30 @@ The protected Penjualan baseline includes:
 - cancelled sales remain audit history but must not be active receivables or active sales;
 - legacy FIFO relations must never be guessed.
 
-## Purchases rules that Room must preserve
+Current SO numbering evidence is protected separately in the Stage A numbering strategy. Moving the SO generator from server to Room in future Hybrid mode requires an explicit implementation decision; this audit does not silently change R125 ownership.
 
-- Lunas is the default settlement.
-- Tempo has no payment method at initial save and default due date = purchase date + 45 days.
-- valid transaction purchase price becomes the latest Master Barang purchase price.
-- new purchases create real current FIFO layers even when historical FIFO gaps exist; never fabricate historical FIFO layers.
-- current protected PO format is `PO-YYYYMMDD-NNN`, sequence resets by transaction date; legacy/random/old-format PO remains readable; edit retains original PO number.
+## Purchases rules — semantic parity, authority depends mode
 
-## Payment model — important Stage A decision
+Business behavior to preserve:
 
-Do not model payment as only a mutable "paid amount" field on a sale/purchase.
+- Lunas is default settlement;
+- Tempo has no payment method at initial save and default due date = purchase date + 45 days;
+- valid transaction purchase price becomes latest Master Barang purchase price;
+- new purchases create real current FIFO layers even when historical FIFO gaps exist; never fabricate historical FIFO layers;
+- protected PO format is `PO-YYYYMMDD-NNN`, daily sequence; legacy/random/old-format PO remains readable; edit retains original PO number.
+
+Authority is mode-specific:
+
+- Free/Starter local operational mode may require local purchase persistence because there is no operational cloud transaction DB;
+- Professional+ Back Office Pembelian may remain direct-cloud;
+- Tunas Baru remains direct-cloud until controlled rollout;
+- local Room must never become a second independent writer for a cloud-owned purchase route.
+
+Exact Free/Starter purchase UI/write routing still requires explicit implementation mapping before Stage B reaches transaction writes.
+
+## Payment model — Stage A decision
+
+Do not model payment as only a mutable `paid amount` field on a sale/purchase.
 
 `payments` represents one real cash/bank receipt or disbursement.
 
@@ -99,14 +144,14 @@ Do not model payment as only a mutable "paid amount" field on a sale/purchase.
 For receivables:
 
 1. allocate to positive adjustment/reconciliation balance first;
-2. then to oldest real sales note;
+2. then oldest real sales note;
 3. continue FIFO across notes until payment is exhausted.
 
 For payables the same concept applies per supplier.
 
 One payment may allocate to multiple invoices while still being one cash/bank movement.
 
-Positive/negative receivable/payable adjustments are not fake payments and must not fabricate cashflow rows. Negative adjustment changes effective balance virtually; it must not mark a sale/purchase LUNAS merely because the effective balance is covered.
+Positive/negative receivable/payable adjustments are not fake payments and must not fabricate cashflow rows. Negative adjustment changes effective balance virtually; it must not mark a sale/purchase LUNAS merely because effective balance is covered.
 
 Current Hosting operational payment history uses `gs_cicilan`. `gs_riwayat_cicilan` is legacy/parked and must not become the Room source model.
 
@@ -124,21 +169,28 @@ Use a movement ledger, not only current stock balance.
 - ADJUSTMENT
 - future TRANSFER
 
-Each movement should preserve source transaction/detail UUID, item UUID, qty delta, stock before/after where authoritative, cost/HPP references, device, timestamps, revision, and sync status.
+Each movement should preserve source transaction/detail UUID, item UUID, qty delta, stock before/after where authoritative, cost/HPP references, device, timestamps, revision, and sync state where relevant.
 
 `inventory_layers` keeps FIFO acquisition layers and remaining quantity.
 
 Current/future FIFO rules:
 
-- current and future flows must be deterministic, transaction-safe, idempotent, rollback-safe, and multi-device safe;
+- deterministic, transaction-safe, idempotent, rollback-safe, multi-device safe where multi-device applies;
 - sales may split consumption across multiple FIFO layers;
-- Owner, supplier tax origin, unit conversion, cost/HPP must come from proven authoritative relations;
-- LEGACY/UNVERIFIED relationships fail closed and are not guessed;
+- Owner, supplier tax origin, unit conversion, cost/HPP come from proven authoritative relations;
+- LEGACY/UNVERIFIED relations fail closed and are not guessed;
 - cancellation/return must not contaminate active cost/Owner/tax reporting.
+
+### SANRO Stock authority
+
+- Tunas Baru/current direct-cloud SANRO Stock remains direct-cloud while Hybrid is disabled;
+- Professional Hybrid ON: stock-mutating SANRO Stock operations must target Perangkat Utama Local API so authoritative local stock changes immediately;
+- read-only/reporting paths may remain direct-cloud if they do not mutate authoritative stock;
+- Free/Starter SANRO Stock remains unavailable under current product requirement.
 
 ## Point Reward model
 
-Point Reward requires its own ledger; do not derive the entire state only from current balance.
+Point Reward requires its own ledger; do not derive entire state only from current balance.
 
 `point_ledger` entries must distinguish at least:
 
@@ -154,22 +206,31 @@ Manual subtraction must not create negative point balance. Manual adjustment mus
 
 ## Atomic local transaction boundary
 
-When local-first sale write is activated, one Room transaction should atomically commit:
+For a transaction whose authority is local Room (for example local-first POS sale), one Room transaction should atomically commit all locally authoritative effects required by that operation:
 
 - Sale
 - SaleDetails
-- Payment (when immediate settlement exists)
+- Payment when immediate settlement exists
 - PaymentAllocations
 - InventoryMovements
 - FIFO layer updates/consumption
 - Point ledger mutation/pending entry when applicable
-- SyncQueue outbox event(s)
+- local document sequence update when locally owned
+- SyncQueue outbox event(s) only when that mode actually synchronizes operational transactions
 
 No partial commit is acceptable.
 
-Do not dual-write the Web UI directly to cloud while Native Bridge separately mirrors the same transaction into Room. When local-first is activated, preferred ownership is: Room commit -> transactional outbox -> Sync Engine -> Cloud API.
+Do not dual-write the same business transaction from Web UI directly to cloud while Native Bridge separately mirrors it to Room.
+
+For Professional Hybrid locally authoritative POS writes, preferred ownership is Room/Perangkat Utama commit -> transactional outbox -> sync engine -> Cloud API.
+
+For Free/Starter, the transaction remains local operationally; do not invent cloud transaction sync merely because `sync_queue` exists in the shared architecture.
+
+For Direct Cloud mode, existing cloud write ownership remains active until explicitly switched.
 
 ## Transactional outbox
+
+Outbox is required only for operations that have a downstream synchronization target.
 
 Draft `sync_queue` fields:
 
@@ -194,9 +255,11 @@ No blind last-write-wins for financial/inventory transactions.
 
 - Master data: revision-based conflict handling.
 - Committed financial transactions: event/reversal model rather than destructive overwrite.
-- Inventory: movement sync + reconciliation.
+- Inventory: movement sync + reconciliation where synchronization exists.
 - Return/payment: stable UUID + source refs + idempotency.
 - Important conflicts must remain auditable.
+
+Direct-cloud and local-only modes should not manufacture sync conflicts for entities that do not sync.
 
 ## Numeric model — proposal, not LOCK
 
@@ -213,11 +276,11 @@ Final scale remains pending exact LIVE schema/runtime audit.
 
 ## Backup/restore requirements
 
-Backup must be a transactionally consistent Room/SQLite snapshot, not a raw arbitrary copy while writers are active.
+Backup must be a transactionally consistent Room/SQLite snapshot, not an arbitrary raw copy while writers are active.
 
-Required sequence concept:
+Required concept:
 
-1. gate/pause writers;
+1. gate/pause local writers;
 2. drain active transaction;
 3. controlled checkpoint/close or supported safe snapshot mechanism;
 4. snapshot database;
@@ -225,7 +288,7 @@ Required sequence concept:
 6. encrypt;
 7. validate encrypted artifact and metadata;
 8. reopen writers;
-9. upload to user-owned Google Drive when backup integration is ready.
+9. upload to user-owned Google Drive when backup integration is ready and applicable.
 
 Do not implement encryption until cross-device key recovery is designed. Android Keystore alone is insufficient for lost-device replacement.
 
@@ -235,34 +298,39 @@ Room migrations must be explicit/versioned. `fallbackToDestructiveMigration()` i
 
 Identity must be independent of hardware device ID.
 
-Free/Starter replacement target:
+Free/Starter target:
 
-install -> login -> restore/replace device -> Admin verification -> restore validated encrypted backup -> revoke old device -> activate new slot.
+install -> login/verify entitlement -> restore/replace device -> validated encrypted backup restore -> revoke old device slot -> activate new device.
 
-Professional+ target:
+Because operational transactions are local-only for Free/Starter, recovery quality is critical; a cloud transaction database must not be assumed as the restore source.
 
-login -> verify -> register new device -> initial sync cloud -> populate Room -> replace/revoke old slot according to plan.
+Professional Hybrid Perangkat Utama replacement target:
+
+controlled recovery/transfer -> authenticate -> validate branch/device authority -> rebuild/restore authoritative Room state from approved cloud/local recovery sources -> reconcile pending sync -> revoke old Perangkat Utama -> activate replacement.
+
+Perangkat Kasir replacement is separate from Perangkat Utama replacement because device role and user role are different.
 
 ## Android Studio readiness gate
 
 Do not start Room/Bluetooth implementation from an incomplete V1.0.5 project snapshot.
 
-Current GitHub `WORK_V1_0_5` is a protected source patch/snapshot but is not a complete Android Studio project. Before source implementation:
+Current GitHub `WORK_V1_0_5` is protected but not a complete Android Studio project. Before source implementation:
 
-1. obtain the FULL V1.0.5 source/project that produced the user-tested WORK APK;
-2. verify Manifest, root Gradle/settings, wrapper, resources, signing-neutral project structure, app modules and package IDs;
-3. create a complete Android rollback/checkpoint;
+1. obtain FULL V1.0.5 source/project that produced the user-tested WORK APK;
+2. verify Manifest, root Gradle/settings, wrapper, resources, signing-neutral project structure, modules and package IDs;
+3. create complete Android checkpoint/rollback;
 4. build V1.0.5 unchanged first;
 5. install over existing V1.0.5 and run regression smoke;
-6. only then create the next implementation stage.
+6. only then open Stage B implementation.
 
-Protected Android behavior to preserve includes WebView/session, camera/scan, upload/file chooser, download handling, safe browsing, SSL guard, external URL handling, Android PrintManager, safe-area handling, launcher identity, Back behavior, and orientation policy: phone <600dp portrait; tablet >=600dp follows Android/user orientation.
+Protected Android behavior to preserve includes WebView/session, camera/scan, upload/file chooser, download handling, safe browsing, SSL guard, external URL handling, Android PrintManager, safe-area handling, launcher identity, Back behavior, and orientation: phone <600dp portrait; tablet >=600dp follows Android/user orientation.
 
 ## Remaining Stage A blockers
 
-1. Exact LIVE Hosting schema capture via `information_schema` + `SHOW CREATE TABLE` for target runtime tables; READ-ONLY only.
+1. Exact LIVE Hosting schema/runtime capture via READ-ONLY metadata/`SHOW CREATE TABLE` and source verification for required routes.
 2. FULL buildable Android V1.0.5 source/project matching the tested APK.
-3. Final offline visible transaction-number scheme must be audited before local multi-device support. UUID is identity, but visible No Transaksi/Nota still requires a separate deterministic strategy.
+3. Per-document authority matrix and exact final transaction-number generators must be confirmed before local transaction implementation.
+4. Kasir behavior when Perangkat Utama is unreachable remains an explicit product decision; do not invent it.
 
 ## Rollback/deployment status for this document
 
