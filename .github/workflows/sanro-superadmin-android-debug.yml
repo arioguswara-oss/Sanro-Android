@@ -1,5 +1,9 @@
-name: SANRO Superadmin Android - Build Debug (manual)
+name: SANRO Superadmin Android - Build Debug
 on:
+  pull_request:
+    paths:
+      - 'SanroSuperadmin/**'
+      - '.github/workflows/sanro-superadmin-android-debug.yml'
   workflow_dispatch:
 permissions:
   contents: read

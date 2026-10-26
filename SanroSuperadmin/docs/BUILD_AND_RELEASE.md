@@ -7,9 +7,10 @@
 4. Install `app/build/outputs/apk/debug/app-debug.apk` on a test device. Its debug package is `com.sanrotech.superadmin.debug`.
 
 ## Private CI build
-- In GitHub Actions, select **SANRO Superadmin Android — Build Debug (manual)**, choose the feature branch and click Run workflow.
+- Opening/updating the pull request triggers a restricted GitHub Actions build for `SanroSuperadmin/**` changes, if Actions is enabled for the repository.
 - CI provisions Java 17, Android SDK 35, Gradle 8.9; runs unit tests + lint + assembles debug.
-- Retrieve `sanro-superadmin-v1.0.0-debug` from the workflow run artifacts after success.
+- Retrieve `sanro-superadmin-v1.0.0-debug` from workflow run artifacts **only after SUCCESS**.
+- The manual `workflow_dispatch` option is intended for after the workflow file reaches the default branch; do not rely on dispatch before merge.
 - Do not distribute debug APK as a production release.
 
 ## Release signing (Owner only)
